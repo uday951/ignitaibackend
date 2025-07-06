@@ -44,4 +44,33 @@ Example certificate document:
 
 ```
 node index.js
-``` 
+```
+
+## Deployment on Render
+
+### 1. Environment Variables
+Set the following environment variables in your Render dashboard:
+- `PORT` (Render sets this automatically, but your app already uses it)
+- `MONGO_URI`
+- `SMTP_HOST`
+- `SMTP_PORT`
+- `SMTP_SECURE` ("true" or "false")
+- `SMTP_USER`
+- `SMTP_PASS`
+- `SMTP_FROM` (optional)
+- `NOTIFY_EMAIL`
+
+### 2. Start Command
+```
+npm start
+```
+
+### 3. Build Command
+No build step is required for this backend (Node.js/Express).
+
+### 4. Persistent Storage
+If you want to persist uploads, configure a Render Disk and mount it to `/backend/uploads`.
+
+### 5. Web Service
+- Make sure your service is set as a Web Service in Render.
+- Expose the port provided by the `PORT` environment variable. 
