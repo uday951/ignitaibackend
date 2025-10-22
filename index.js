@@ -187,14 +187,14 @@ app.post('/api/contact', async (req, res) => {
 
 // POST /api/feedback (with image upload)
 app.post('/api/feedback', feedbackUpload.single('image'), async (req, res) => {
-  let { name, role, quote, badges, rating, linkedin } = req.body;
+  let { name, role, company, quote, badges, rating, linkedin } = req.body;
   if (!name || !role || !quote) {
     return res.status(400).json({ error: 'Name, role, and quote are required.' });
   }
   try {
     name = toTitleCase(name.trim());
     role = toTitleCase(role.trim());
-    const company = 'IgnitAI';
+    company = company ? toTitleCase(company.trim()) : 'Ignivance';
     const image = req.file ? `/uploads/${req.file.filename}` : '';
     const feedback = new Feedback({
       name,
