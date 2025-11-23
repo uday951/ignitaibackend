@@ -348,12 +348,19 @@ const realInterviewQuestions = {
   ]
 };
 
-// Hugging Face AI Integration
+// Enhanced AI Response with Better Prompting
 const generateAIResponse = async (answer, round, questionIndex, tech, question) => {
   try {
-    const prompt = `You are an experienced technical interviewer. The candidate answered: "${answer}". Give a brief, natural response and ask a follow-up question about ${tech}. Keep it under 40 words and conversational.`;
+    // More specific prompts for better responses
+    const roundPrompts = {
+      1: `As a technical interviewer, the candidate said: "${answer}". Acknowledge briefly and ask a deeper ${tech} technical question. Be conversational, under 35 words.`,
+      2: `As an interviewer testing problem-solving, candidate answered: "${answer}". Give brief feedback and ask about scalability, optimization, or edge cases. Under 35 words.`,
+      3: `As an HR interviewer, candidate shared: "${answer}". Acknowledge and ask about teamwork, learning, or communication. Keep it natural, under 35 words.`
+    };
+    
+    const prompt = roundPrompts[round] || roundPrompts[1];
 
-    const response = await fetch('https://api-inference.huggingface.co/models/facebook/blenderbot-400M-distill', {
+    const response = await fetch('https://api-inference.huggingface.co/models/microsoft/DialoGPT-large', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -361,10 +368,11 @@ const generateAIResponse = async (answer, round, questionIndex, tech, question) 
       body: JSON.stringify({
         inputs: prompt,
         parameters: {
-          max_new_tokens: 50,
-          temperature: 0.7,
+          max_new_tokens: 45,
+          temperature: 0.8,
           do_sample: true,
-          top_p: 0.9
+          top_p: 0.85,
+          repetition_penalty: 1.2
         }
       })
     });
@@ -379,75 +387,109 @@ const generateAIResponse = async (answer, round, questionIndex, tech, question) 
         aiResponse = data.generated_text;
       }
       
-      // Clean up the response
-      aiResponse = aiResponse.replace(prompt, '').trim();
-      if (aiResponse.length > 10 && aiResponse.length < 200) {
+      // Better cleaning
+      aiResponse = aiResponse.replace(prompt, '').replace(/^[^a-zA-Z]*/, '').trim();
+      
+      // Validate response quality
+      if (aiResponse.length > 15 && aiResponse.length < 120 && !aiResponse.includes('undefined')) {
         return aiResponse;
       }
     }
   } catch (error) {
-    console.error('Hugging Face API error:', error);
+    console.error('Enhanced AI error:', error);
   }
   
-  // Fallback responses if API fails
-  const fallbackResponses = {
-    round1: [
-      "That's a solid understanding. Can you give me a practical example?",
-      "Good explanation. How would you implement this in a real project?",
-      "I see. What challenges might you face with this approach?"
-    ],
-    round2: [
-      "Interesting solution. What if we need to scale this to handle millions of users?",
-      "Good thinking. Can you walk me through the edge cases?",
-      "That's a start. How would you optimize this further?"
-    ],
-    round3: [
-      "Thanks for sharing that. How did that experience change your approach?",
-      "That shows good learning mindset. How do you stay updated with new technologies?",
-      "Great attitude. How do you handle disagreements in technical discussions?"
-    ]
-  };
-  
-  const roundResponses = fallbackResponses[`round${round}`] || fallbackResponses.round1;
-  return roundResponses[questionIndex % roundResponses.length];
+  return null; // Let the main function handle fallbacks
 };
 
-// Enhanced AI conversation with context
-const generateContextualResponse = async (conversationHistory, currentAnswer, tech, round) => {
-  try {
-    const context = conversationHistory.slice(-3).map(msg => `${msg.speaker}: ${msg.message}`).join('\n');
-    const prompt = `Interview context:\n${context}\nCandidate: ${currentAnswer}\n\nAs a ${tech} interviewer, respond naturally and ask a relevant follow-up:`;
+// Natural AI Response Generation using Multiple Models
+const generateNaturalResponse = async (answer, round, questionIndex, tech, conversationHistory) => {
+  const models = [
+    'microsoft/DialoGPT-large',
+    'facebook/blenderbot-400M-distill',
+    'microsoft/DialoGPT-medium'
+  ];
+  
+  // Create context-aware prompt
+  const context = conversationHistory.slice(-2).map(msg => `${msg.speaker === 'ai' ? 'Interviewer' : 'Candidate'}: ${msg.message}`).join('\n');
+  
+  const roundContext = {
+    1: 'technical fundamentals',
+    2: 'problem-solving and system design', 
+    3: 'behavioral and communication skills'
+  };
+  
+  const prompt = `You are conducting a ${tech} technical interview focusing on ${roundContext[round]}.
 
-    const response = await fetch('https://api-inference.huggingface.co/models/microsoft/DialoGPT-large', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        inputs: prompt,
-        parameters: {
-          max_new_tokens: 60,
-          temperature: 0.8,
-          do_sample: true,
-          pad_token_id: 50256
+Conversation so far:
+${context}
+Candidate: ${answer}
+
+As a professional interviewer, respond naturally with:
+1. Brief acknowledgment of their answer
+2. A relevant follow-up question
+3. Keep it conversational and under 40 words
+
+Interviewer:`;
+
+  // Try multiple models for best response
+  for (const model of models) {
+    try {
+      const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          inputs: prompt,
+          parameters: {
+            max_new_tokens: 50,
+            temperature: 0.7,
+            do_sample: true,
+            top_p: 0.9,
+            repetition_penalty: 1.1
+          }
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        let aiResponse = '';
+        
+        if (Array.isArray(data) && data[0]?.generated_text) {
+          aiResponse = data[0].generated_text;
+        } else if (data.generated_text) {
+          aiResponse = data.generated_text;
         }
-      })
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      let aiResponse = data[0]?.generated_text || data.generated_text || '';
-      
-      // Extract only the new response
-      aiResponse = aiResponse.replace(prompt, '').trim();
-      if (aiResponse.length > 10) {
-        return aiResponse;
+        
+        // Clean and validate response
+        aiResponse = aiResponse.replace(prompt, '').replace('Interviewer:', '').trim();
+        
+        if (aiResponse.length > 15 && aiResponse.length < 150 && aiResponse.includes('?')) {
+          return aiResponse;
+        }
       }
+    } catch (error) {
+      console.error(`Model ${model} failed:`, error);
+      continue;
     }
-  } catch (error) {
-    console.error('Contextual AI error:', error);
   }
   
+  return null;
+};
+
+// Fallback for initial readiness responses
+const getReadinessResponse = (answer, tech) => {
+  const lowerAnswer = answer.toLowerCase();
+  if (lowerAnswer.includes('yes') || lowerAnswer.includes('ready') || lowerAnswer.includes('ok') || lowerAnswer.includes('sure')) {
+    const firstQuestions = {
+      'MERN Stack': "Great! Let's start with the basics. Can you explain what MERN stands for and how these technologies work together?",
+      'React': "Perfect! Let's begin. Can you explain the difference between functional and class components in React?",
+      'Node.js': "Excellent! First question: What is the event loop in Node.js and why is it important?",
+      'JavaScript': "Wonderful! Let's start: Can you explain the difference between let, const, and var in JavaScript?"
+    };
+    return firstQuestions[tech] || `Great! Let's start with a basic ${tech} question. Can you explain the core concepts of ${tech}?`;
+  }
   return null;
 };
 
@@ -549,25 +591,51 @@ app.post('/api/real-ai-interview/submit-answer', async (req, res) => {
     }
     session.allAnswers[`round${round}`].push(answer);
     
-    // Generate contextual AI response
+    // Generate natural AI response
     const conversationHistory = session.conversationHistory || [];
     let aiResponse;
     
-    try {
-      aiResponse = await generateContextualResponse(conversationHistory, answer, selectedTech, round);
-      
-      if (!aiResponse) {
-        aiResponse = await generateAIResponse(answer, round, questionIndex, selectedTech, 'current question');
+    // Handle initial readiness first
+    const readinessResponse = getReadinessResponse(answer, selectedTech);
+    if (readinessResponse) {
+      aiResponse = readinessResponse;
+    } else {
+      // Generate natural AI response
+      try {
+        aiResponse = await generateNaturalResponse(answer, round, questionIndex, selectedTech, conversationHistory);
+        
+        // If AI fails, try the simpler model
+        if (!aiResponse) {
+          aiResponse = await generateAIResponse(answer, round, questionIndex, selectedTech, 'current question');
+        }
+        
+        // Final fallback with context
+        if (!aiResponse) {
+          const contextualFallbacks = {
+            1: [
+              `That's a good understanding of ${selectedTech}. Can you give me a practical example of how you'd use this?`,
+              `Interesting approach. What challenges have you faced when working with ${selectedTech}?`,
+              `I see you know the basics. How would you explain ${selectedTech} to a junior developer?`
+            ],
+            2: [
+              "That's a thoughtful solution. How would you handle this at scale?",
+              "Good approach. What edge cases would you consider?",
+              "Interesting design. How would you test this implementation?"
+            ],
+            3: [
+              "Thanks for sharing that experience. How did it help you grow?",
+              "That shows good problem-solving. How do you handle team conflicts?",
+              "Great mindset. How do you stay updated with new technologies?"
+            ]
+          };
+          
+          const fallbacks = contextualFallbacks[round] || contextualFallbacks[1];
+          aiResponse = fallbacks[Math.floor(Math.random() * fallbacks.length)];
+        }
+      } catch (error) {
+        console.error('All AI models failed:', error);
+        aiResponse = "That's a thoughtful answer. Can you tell me more about your approach?";
       }
-    } catch (error) {
-      console.error('AI response generation failed:', error);
-      // Fallback response
-      const fallbacks = [
-        "That's interesting. Can you tell me more about your approach?",
-        "Good point. How would you handle edge cases?",
-        "I see. What challenges might you face with this solution?"
-      ];
-      aiResponse = fallbacks[Math.floor(Math.random() * fallbacks.length)];
     }
     
     // Store conversation history
