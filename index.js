@@ -304,7 +304,223 @@ app.get('/api/feedback', async (req, res) => {
   }
 });
 
-// AI Interview Routes
+// Real AI Interview Routes with Advanced Features
+
+const realInterviewQuestions = {
+  // Round 1: Technical Basics
+  round1: {
+    React: [
+      "What is the difference between functional and class components in React?",
+      "Explain the concept of React hooks and give examples.",
+      "How does the virtual DOM work in React?"
+    ],
+    'Node.js': [
+      "What is the event loop in Node.js and how does it work?",
+      "Explain the difference between synchronous and asynchronous programming.",
+      "What are middleware functions in Express.js?"
+    ],
+    'MERN Stack': [
+      "Explain the MERN stack architecture.",
+      "How do you handle state management in a MERN application?",
+      "What is the role of MongoDB in the MERN stack?"
+    ]
+  },
+  // Round 2: Problem Solving
+  round2: {
+    React: [
+      "How would you optimize a React application that's rendering slowly?",
+      "Design a component that fetches data from an API and handles loading states."
+    ],
+    'Node.js': [
+      "How would you handle file uploads in a Node.js application?",
+      "Design a REST API for a simple blog application."
+    ],
+    'MERN Stack': [
+      "How would you implement user authentication in a MERN application?",
+      "Design the database schema for an e-commerce application."
+    ]
+  },
+  // Round 3: HR & Behavioral
+  round3: [
+    "Tell me about a challenging project you worked on and how you overcame difficulties.",
+    "How do you stay updated with new technologies and trends?",
+    "Describe a time when you had to work with a difficult team member."
+  ]
+};
+
+const generateAIResponse = (answer, round, questionIndex, tech) => {
+  const responses = {
+    round1: [
+      "That's a solid understanding of the basics. Let me ask you something more specific about implementation.",
+      "Good explanation. Can you give me a practical example of when you'd use this?",
+      "I see you understand the concept. How would you explain this to a junior developer?"
+    ],
+    round2: [
+      "Interesting approach. What would you do if this solution doesn't scale?",
+      "That's a good start. Can you walk me through the implementation details?",
+      "I like your thinking. What are the potential drawbacks of this approach?"
+    ],
+    round3: [
+      "Thank you for sharing that experience. It shows good problem-solving skills.",
+      "That's a great attitude towards learning. How do you apply new knowledge in your projects?",
+      "Communication is key in development teams. How do you handle technical disagreements?"
+    ]
+  };
+  
+  const roundResponses = responses[`round${round}`] || responses.round1;
+  return roundResponses[questionIndex % roundResponses.length];
+};
+
+const calculateAdvancedScore = (allAnswers, selectedTech) => {
+  let scores = { round1: 0, round2: 0, round3: 0 };
+  
+  // Round 1: Technical knowledge
+  if (allAnswers.round1) {
+    let techScore = 50;
+    allAnswers.round1.forEach(answer => {
+      const lowerAnswer = answer.toLowerCase();
+      if (lowerAnswer.length > 100) techScore += 10;
+      if (lowerAnswer.includes(selectedTech.toLowerCase())) techScore += 15;
+      
+      // Technical keywords
+      const techKeywords = ['component', 'function', 'api', 'database', 'framework', 'library'];
+      const foundKeywords = techKeywords.filter(keyword => lowerAnswer.includes(keyword));
+      techScore += foundKeywords.length * 5;
+    });
+    scores.round1 = Math.min(techScore, 100);
+  }
+  
+  // Round 2: Problem solving
+  if (allAnswers.round2) {
+    let problemScore = 50;
+    allAnswers.round2.forEach(answer => {
+      const lowerAnswer = answer.toLowerCase();
+      if (lowerAnswer.length > 150) problemScore += 15;
+      
+      // Problem-solving keywords
+      const problemKeywords = ['optimize', 'scale', 'performance', 'solution', 'approach', 'implement'];
+      const foundKeywords = problemKeywords.filter(keyword => lowerAnswer.includes(keyword));
+      problemScore += foundKeywords.length * 8;
+    });
+    scores.round2 = Math.min(problemScore, 100);
+  }
+  
+  // Round 3: Communication & HR
+  if (allAnswers.round3) {
+    let hrScore = 60;
+    allAnswers.round3.forEach(answer => {
+      const lowerAnswer = answer.toLowerCase();
+      if (lowerAnswer.length > 120) hrScore += 10;
+      
+      // Soft skills keywords
+      const softKeywords = ['team', 'communication', 'challenge', 'learn', 'collaborate', 'problem'];
+      const foundKeywords = softKeywords.filter(keyword => lowerAnswer.includes(keyword));
+      hrScore += foundKeywords.length * 6;
+    });
+    scores.round3 = Math.min(hrScore, 100);
+  }
+  
+  const overallScore = Math.round((scores.round1 + scores.round2 + scores.round3) / 3);
+  return { overallScore, roundScores: scores };
+};
+
+// POST /api/real-ai-interview/start
+app.post('/api/real-ai-interview/start', (req, res) => {
+  try {
+    const { courseTrack, selectedTech } = req.body;
+    const sessionId = 'real-' + Date.now().toString() + Math.random().toString(36).substr(2, 9);
+    
+    activeInterviews.set(sessionId, {
+      courseTrack,
+      selectedTech,
+      allAnswers: {},
+      currentRound: 1,
+      startTime: new Date(),
+      questions: realInterviewQuestions
+    });
+    
+    setTimeout(() => activeInterviews.delete(sessionId), 2 * 60 * 60 * 1000); // 2 hours
+    
+    res.json({
+      sessionId,
+      message: 'Advanced AI interview session started',
+      rounds: 3,
+      questionsPerRound: 3
+    });
+  } catch (error) {
+    console.error('Error starting real AI interview:', error);
+    res.status(500).json({ error: 'Failed to start interview' });
+  }
+});
+
+// POST /api/real-ai-interview/submit-answer
+app.post('/api/real-ai-interview/submit-answer', (req, res) => {
+  try {
+    const { sessionId, answer, round, questionIndex, selectedTech } = req.body;
+    const session = activeInterviews.get(sessionId);
+    
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    
+    // Store answer
+    if (!session.allAnswers[`round${round}`]) {
+      session.allAnswers[`round${round}`] = [];
+    }
+    session.allAnswers[`round${round}`].push(answer);
+    
+    // Generate AI response
+    const aiResponse = generateAIResponse(answer, round, questionIndex, selectedTech);
+    
+    res.json({
+      aiResponse,
+      analysis: {
+        length: answer.length,
+        wordCount: answer.split(' ').length,
+        round: round,
+        questionIndex: questionIndex
+      }
+    });
+  } catch (error) {
+    console.error('Error submitting answer:', error);
+    res.status(500).json({ error: 'Failed to submit answer' });
+  }
+});
+
+// GET /api/real-ai-interview/results/:sessionId
+app.get('/api/real-ai-interview/results/:sessionId', (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const session = activeInterviews.get(sessionId);
+    
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    
+    const { overallScore, roundScores } = calculateAdvancedScore(session.allAnswers, session.selectedTech);
+    
+    const results = {
+      overallScore,
+      roundScores: [
+        { round: 'Technical Basics', score: roundScores.round1, feedback: roundScores.round1 >= 80 ? 'Excellent technical knowledge' : roundScores.round1 >= 60 ? 'Good understanding of concepts' : 'Need to strengthen fundamentals' },
+        { round: 'Problem Solving', score: roundScores.round2, feedback: roundScores.round2 >= 80 ? 'Strong problem-solving skills' : roundScores.round2 >= 60 ? 'Good analytical thinking' : 'Practice more coding problems' },
+        { round: 'HR & Behavioral', score: roundScores.round3, feedback: roundScores.round3 >= 80 ? 'Excellent communication skills' : roundScores.round3 >= 60 ? 'Good interpersonal skills' : 'Work on communication and teamwork' }
+      ],
+      strengths: overallScore >= 80 ? ['Strong technical skills', 'Good problem-solving', 'Clear communication'] : overallScore >= 60 ? ['Basic technical knowledge', 'Willing to learn', 'Good attitude'] : ['Interest in technology', 'Potential for growth'],
+      improvements: overallScore >= 80 ? ['Advanced system design', 'Leadership skills'] : overallScore >= 60 ? ['Deepen technical knowledge', 'Practice coding problems'] : ['Strengthen fundamentals', 'Build more projects', 'Practice communication'],
+      recommendation: `${overallScore >= 80 ? 'Excellent' : overallScore >= 60 ? 'Good' : 'Developing'} candidate for ${session.selectedTech}. ${overallScore >= 80 ? 'Ready for advanced roles.' : overallScore >= 60 ? 'Focus on hands-on practice.' : 'Start with fundamentals and build projects.'}`,
+      nextSteps: overallScore >= 80 ? ['Apply for senior positions', 'Mentor others', 'Contribute to open source'] : overallScore >= 60 ? ['Build portfolio projects', 'Practice system design', 'Join coding communities'] : ['Complete online courses', 'Build basic projects', 'Practice daily coding']
+    };
+    
+    activeInterviews.delete(sessionId);
+    res.json(results);
+  } catch (error) {
+    console.error('Error getting results:', error);
+    res.status(500).json({ error: 'Failed to get results' });
+  }
+});
+
+// Original AI Interview Routes (keeping for backward compatibility)
 
 // POST /api/ai-interview/start
 app.post('/api/ai-interview/start', (req, res) => {
@@ -379,8 +595,13 @@ app.get('/api/ai-interview/results/:sessionId', (req, res) => {
 
 // GET /api/ai-interview/stats (optional - for monitoring)
 app.get('/api/ai-interview/stats', (req, res) => {
+  const realSessions = Array.from(activeInterviews.keys()).filter(key => key.startsWith('real-')).length;
+  const basicSessions = Array.from(activeInterviews.keys()).filter(key => !key.startsWith('real-')).length;
+  
   res.json({
-    activeSessions: activeInterviews.size,
+    totalActiveSessions: activeInterviews.size,
+    realAIInterviews: realSessions,
+    basicInterviews: basicSessions,
     timestamp: new Date().toISOString()
   });
 });
