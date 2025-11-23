@@ -534,7 +534,7 @@ app.post('/api/real-ai-interview/start', (req, res) => {
 });
 
 // POST /api/real-ai-interview/submit-answer
-app.post('/api/real-ai-interview/submit-answer', (req, res) => {
+app.post('/api/real-ai-interview/submit-answer', async (req, res) => {
   try {
     const { sessionId, answer, round, questionIndex, selectedTech } = req.body;
     const session = activeInterviews.get(sessionId);
@@ -551,10 +551,23 @@ app.post('/api/real-ai-interview/submit-answer', (req, res) => {
     
     // Generate contextual AI response
     const conversationHistory = session.conversationHistory || [];
-    let aiResponse = await generateContextualResponse(conversationHistory, answer, selectedTech, round);
+    let aiResponse;
     
-    if (!aiResponse) {
-      aiResponse = await generateAIResponse(answer, round, questionIndex, selectedTech, 'current question');
+    try {
+      aiResponse = await generateContextualResponse(conversationHistory, answer, selectedTech, round);
+      
+      if (!aiResponse) {
+        aiResponse = await generateAIResponse(answer, round, questionIndex, selectedTech, 'current question');
+      }
+    } catch (error) {
+      console.error('AI response generation failed:', error);
+      // Fallback response
+      const fallbacks = [
+        "That's interesting. Can you tell me more about your approach?",
+        "Good point. How would you handle edge cases?",
+        "I see. What challenges might you face with this solution?"
+      ];
+      aiResponse = fallbacks[Math.floor(Math.random() * fallbacks.length)];
     }
     
     // Store conversation history
