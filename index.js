@@ -6,6 +6,11 @@ const nodemailer = require('nodemailer');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const axios = require('axios');
+const { JSDOM } = require('jsdom');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -97,86 +102,7 @@ const feedbackSchema = new mongoose.Schema({
 });
 const Feedback = mongoose.model('Feedback', feedbackSchema);
 
-// AI Interview - In-memory storage (no database needed)
-const activeInterviews = new Map();
 
-const questionBanks = {
-  frontend: [
-    "What interests you most about creating user interfaces and web experiences?",
-    "How would you approach learning React and modern JavaScript?",
-    "Describe a website or app you admire and what makes it special.",
-    "What motivates you to pursue frontend development?",
-    "How do you handle challenges when learning new technologies?"
-  ],
-  backend: [
-    "What interests you about server-side development and APIs?",
-    "How would you approach learning Node.js and databases?",
-    "Describe a backend system or API you find interesting.",
-    "What motivates you to pursue backend development?",
-    "How do you approach problem-solving in technical projects?"
-  ],
-  fullstack: [
-    "What interests you about full-stack development?",
-    "How would you approach learning both frontend and backend technologies?",
-    "Describe a complete application you'd like to build.",
-    "What motivates you to pursue full-stack development?",
-    "How do you manage learning multiple technologies at once?"
-  ]
-};
-
-const calculateScore = (answers, courseTrack) => {
-  let score = 50;
-  const keywords = {
-    frontend: ['react', 'javascript', 'ui', 'ux', 'design', 'user', 'interface', 'css', 'html'],
-    backend: ['api', 'database', 'server', 'node', 'express', 'mongodb', 'sql', 'backend'],
-    fullstack: ['fullstack', 'complete', 'both', 'frontend', 'backend', 'full', 'stack', 'end-to-end']
-  };
-  
-  const trackKeywords = keywords[courseTrack] || [];
-  
-  answers.forEach(answer => {
-    const lowerAnswer = answer.toLowerCase();
-    if (answer.length > 50) score += 5;
-    if (answer.length > 100) score += 5;
-    
-    const foundKeywords = trackKeywords.filter(keyword => lowerAnswer.includes(keyword));
-    score += foundKeywords.length * 3;
-    
-    const enthusiasmWords = ['excited', 'passionate', 'love', 'enjoy', 'interested', 'motivated'];
-    const foundEnthusiasm = enthusiasmWords.filter(word => lowerAnswer.includes(word));
-    score += foundEnthusiasm.length * 2;
-  });
-  
-  return Math.min(Math.max(score, 20), 100);
-};
-
-const generateFeedback = (score, answers, courseTrack) => {
-  const courseNames = {
-    frontend: 'Frontend Development',
-    backend: 'Backend Development',
-    fullstack: 'Fullstack Development'
-  };
-  
-  let strengths = [];
-  let improvements = [];
-  let feedback = '';
-  
-  if (score >= 80) {
-    strengths = ['Strong communication skills', 'Clear learning goals', 'Good technical awareness'];
-    improvements = ['Continue building projects', 'Join developer communities'];
-    feedback = `Excellent! You show strong potential for ${courseNames[courseTrack]}. Your responses demonstrate clear goals and good technical understanding.`;
-  } else if (score >= 60) {
-    strengths = ['Good motivation', 'Willingness to learn', 'Basic understanding'];
-    improvements = ['Build more hands-on projects', 'Practice technical concepts', 'Engage with coding communities'];
-    feedback = `Great start! You have good motivation for ${courseNames[courseTrack]}. Focus on hands-on practice to strengthen your foundation.`;
-  } else {
-    strengths = ['Interest in technology', 'Willingness to start learning'];
-    improvements = ['Start with basics', 'Practice regularly', 'Build simple projects', 'Join beginner-friendly communities'];
-    feedback = `Good foundation! ${courseNames[courseTrack]} is perfect for building your skills from the ground up. Start with fundamentals and practice consistently.`;
-  }
-  
-  return { strengths, improvements, feedback, recommendedCourse: courseNames[courseTrack] };
-};
 
 // Nodemailer transporter
 const transporter = nodemailer.createTransport({
@@ -304,479 +230,185 @@ app.get('/api/feedback', async (req, res) => {
   }
 });
 
-// Real AI Interview Routes with Advanced Features
-
-const realInterviewQuestions = {
-  // Round 1: Technical Basics
-  round1: {
-    React: [
-      "What is the difference between functional and class components in React?",
-      "Explain the concept of React hooks and give examples.",
-      "How does the virtual DOM work in React?"
-    ],
-    'Node.js': [
-      "What is the event loop in Node.js and how does it work?",
-      "Explain the difference between synchronous and asynchronous programming.",
-      "What are middleware functions in Express.js?"
-    ],
-    'MERN Stack': [
-      "Explain the MERN stack architecture.",
-      "How do you handle state management in a MERN application?",
-      "What is the role of MongoDB in the MERN stack?"
-    ]
-  },
-  // Round 2: Problem Solving
-  round2: {
-    React: [
-      "How would you optimize a React application that's rendering slowly?",
-      "Design a component that fetches data from an API and handles loading states."
-    ],
-    'Node.js': [
-      "How would you handle file uploads in a Node.js application?",
-      "Design a REST API for a simple blog application."
-    ],
-    'MERN Stack': [
-      "How would you implement user authentication in a MERN application?",
-      "Design the database schema for an e-commerce application."
-    ]
-  },
-  // Round 3: HR & Behavioral
-  round3: [
-    "Tell me about a challenging project you worked on and how you overcame difficulties.",
-    "How do you stay updated with new technologies and trends?",
-    "Describe a time when you had to work with a difficult team member."
-  ]
-};
-
-// Enhanced AI Response with Better Prompting
-const generateAIResponse = async (answer, round, questionIndex, tech, question) => {
+// AI Quiz Generator Routes
+const generateQuizWithGemini = async (topics) => {
   try {
-    // More specific prompts for better responses
-    const roundPrompts = {
-      1: `As a technical interviewer, the candidate said: "${answer}". Acknowledge briefly and ask a deeper ${tech} technical question. Be conversational, under 35 words.`,
-      2: `As an interviewer testing problem-solving, candidate answered: "${answer}". Give brief feedback and ask about scalability, optimization, or edge cases. Under 35 words.`,
-      3: `As an HR interviewer, candidate shared: "${answer}". Acknowledge and ask about teamwork, learning, or communication. Keep it natural, under 35 words.`
-    };
+    const topicString = topics.join(' and ');
+    const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
     
-    const prompt = roundPrompts[round] || roundPrompts[1];
-
-    const response = await fetch('https://api-inference.huggingface.co/models/microsoft/DialoGPT-large', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        inputs: prompt,
-        parameters: {
-          max_new_tokens: 45,
-          temperature: 0.8,
-          do_sample: true,
-          top_p: 0.85,
-          repetition_penalty: 1.2
-        }
-      })
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      let aiResponse = '';
-      
-      if (Array.isArray(data) && data[0]?.generated_text) {
-        aiResponse = data[0].generated_text;
-      } else if (data.generated_text) {
-        aiResponse = data.generated_text;
-      }
-      
-      // Better cleaning
-      aiResponse = aiResponse.replace(prompt, '').replace(/^[^a-zA-Z]*/, '').trim();
-      
-      // Validate response quality
-      if (aiResponse.length > 15 && aiResponse.length < 120 && !aiResponse.includes('undefined')) {
-        return aiResponse;
-      }
-    }
-  } catch (error) {
-    console.error('Enhanced AI error:', error);
-  }
-  
-  return null; // Let the main function handle fallbacks
-};
-
-// Natural AI Response Generation using Multiple Models
-const generateNaturalResponse = async (answer, round, questionIndex, tech, conversationHistory) => {
-  const models = [
-    'microsoft/DialoGPT-large',
-    'facebook/blenderbot-400M-distill',
-    'microsoft/DialoGPT-medium'
-  ];
-  
-  // Create context-aware prompt
-  const context = conversationHistory.slice(-2).map(msg => `${msg.speaker === 'ai' ? 'Interviewer' : 'Candidate'}: ${msg.message}`).join('\n');
-  
-  const roundContext = {
-    1: 'technical fundamentals',
-    2: 'problem-solving and system design', 
-    3: 'behavioral and communication skills'
-  };
-  
-  const prompt = `You are conducting a ${tech} technical interview focusing on ${roundContext[round]}.
-
-Conversation so far:
-${context}
-Candidate: ${answer}
-
-As a professional interviewer, respond naturally with:
-1. Brief acknowledgment of their answer
-2. A relevant follow-up question
-3. Keep it conversational and under 40 words
-
-Interviewer:`;
-
-  // Try multiple models for best response
-  for (const model of models) {
+    // Generate MCQs
+    const mcqPrompt = `You are an expert web developer. Generate 10 MCQs on the topic: ${topicString}.
+Return JSON only, EXACT format:
+[
+{
+"question": "",
+"options": ["", "", "", ""],
+"correct": ""
+}
+]
+No explanations. No extra text. No markdown.
+Make sure all questions are UNIQUE and not repeated.`;
+    
+    const mcqResult = await model.generateContent(mcqPrompt);
+    const mcqResponse = mcqResult.response;
+    let mcqText = mcqResponse.text();
+    
+    // Clean the response
+    mcqText = mcqText.replace(/```json/g, '').replace(/```/g, '').trim();
+    
+    // Generate Coding Tasks
+    const codingPrompt = `Generate 3 HTML/CSS coding tasks. Return JSON in this exact format:
+[
+{
+"question": "",
+"expectedHTML": ""
+}
+]
+The 'expectedHTML' must be fully valid HTML/CSS.
+No explanations. No markdown.`;
+    
+    const codingResult = await model.generateContent(codingPrompt);
+    const codingResponse = codingResult.response;
+    let codingText = codingResponse.text();
+    
+    // Clean the response
+    codingText = codingText.replace(/```json/g, '').replace(/```/g, '').trim();
+    
     try {
-      const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          inputs: prompt,
-          parameters: {
-            max_new_tokens: 50,
-            temperature: 0.7,
-            do_sample: true,
-            top_p: 0.9,
-            repetition_penalty: 1.1
-          }
-        })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        let aiResponse = '';
-        
-        if (Array.isArray(data) && data[0]?.generated_text) {
-          aiResponse = data[0].generated_text;
-        } else if (data.generated_text) {
-          aiResponse = data.generated_text;
-        }
-        
-        // Clean and validate response
-        aiResponse = aiResponse.replace(prompt, '').replace('Interviewer:', '').trim();
-        
-        if (aiResponse.length > 15 && aiResponse.length < 150 && aiResponse.includes('?')) {
-          return aiResponse;
-        }
-      }
-    } catch (error) {
-      console.error(`Model ${model} failed:`, error);
-      continue;
+      const mcqs = JSON.parse(mcqText);
+      const coding = JSON.parse(codingText);
+      return { mcqs, coding };
+    } catch (parseError) {
+      console.error('Error parsing Gemini response:', parseError);
+      throw new Error('Invalid response format from AI');
     }
+    
+  } catch (error) {
+    console.error('Error generating quiz with Gemini:', error);
+    
+    // Fallback to mock data
+    const mockMCQs = [
+      {
+        question: "Which HTML tag is used to create a hyperlink?",
+        options: ["<link>", "<a>", "<href>", "<url>"],
+        correct: "<a>"
+      },
+      {
+        question: "What does CSS stand for?",
+        options: ["Computer Style Sheets", "Creative Style Sheets", "Cascading Style Sheets", "Colorful Style Sheets"],
+        correct: "Cascading Style Sheets"
+      },
+      {
+        question: "Which CSS property is used to change the text color?",
+        options: ["color", "text-color", "font-color", "text-style"],
+        correct: "color"
+      },
+      {
+        question: "What is the correct HTML element for the largest heading?",
+        options: ["<h6>", "<heading>", "<h1>", "<header>"],
+        correct: "<h1>"
+      },
+      {
+        question: "Which CSS property controls the text size?",
+        options: ["font-style", "text-size", "font-size", "text-style"],
+        correct: "font-size"
+      },
+      {
+        question: "What is the correct HTML for creating a checkbox?",
+        options: ['<input type="check">', '<input type="checkbox">', '<checkbox>', '<check>'],
+        correct: '<input type="checkbox">'
+      },
+      {
+        question: "Which CSS property is used to make text bold?",
+        options: ["font-weight", "text-bold", "font-style", "text-weight"],
+        correct: "font-weight"
+      },
+      {
+        question: "What does HTML stand for?",
+        options: ["Hyper Text Markup Language", "Home Tool Markup Language", "Hyperlinks Text Mark Language", "Hyper Text Making Language"],
+        correct: "Hyper Text Markup Language"
+      },
+      {
+        question: "Which HTML attribute specifies an alternate text for an image?",
+        options: ["title", "alt", "src", "longdesc"],
+        correct: "alt"
+      },
+      {
+        question: "How do you select an element with id 'demo' in CSS?",
+        options: ["#demo", ".demo", "demo", "*demo"],
+        correct: "#demo"
+      }
+    ];
+    
+    const mockCoding = [
+      {
+        question: "Create a red button with white text that says 'Click Me'",
+        expectedHTML: '<button style="background-color: red; color: white; padding: 10px 20px; border: none; border-radius: 5px;">Click Me</button>'
+      },
+      {
+        question: "Create a div with blue background and centered text 'Hello World'",
+        expectedHTML: '<div style="background-color: blue; color: white; text-align: center; padding: 20px;">Hello World</div>'
+      },
+      {
+        question: "Create an unordered list with 3 items: Apple, Banana, Orange",
+        expectedHTML: '<ul><li>Apple</li><li>Banana</li><li>Orange</li></ul>'
+      }
+    ];
+    
+    return { mcqs: mockMCQs, coding: mockCoding };
   }
-  
-  return null;
 };
 
-// Fallback for initial readiness responses
-const getReadinessResponse = (answer, tech) => {
-  const lowerAnswer = answer.toLowerCase();
-  if (lowerAnswer.includes('yes') || lowerAnswer.includes('ready') || lowerAnswer.includes('ok') || lowerAnswer.includes('sure')) {
-    const firstQuestions = {
-      'MERN Stack': "Great! Let's start with the basics. Can you explain what MERN stands for and how these technologies work together?",
-      'React': "Perfect! Let's begin. Can you explain the difference between functional and class components in React?",
-      'Node.js': "Excellent! First question: What is the event loop in Node.js and why is it important?",
-      'JavaScript': "Wonderful! Let's start: Can you explain the difference between let, const, and var in JavaScript?"
-    };
-    return firstQuestions[tech] || `Great! Let's start with a basic ${tech} question. Can you explain the core concepts of ${tech}?`;
+const compareHTML = (userCode, expectedHTML) => {
+  try {
+    const userDOM = new JSDOM(userCode);
+    const expectedDOM = new JSDOM(expectedHTML);
+    
+    const userBody = userDOM.window.document.body.innerHTML.trim().toLowerCase();
+    const expectedBody = expectedDOM.window.document.body.innerHTML.trim().toLowerCase();
+    
+    // Simple comparison - in production, you'd want more sophisticated matching
+    const similarity = userBody.includes(expectedBody.replace(/<[^>]*>/g, '')) || 
+                      expectedBody.includes(userBody.replace(/<[^>]*>/g, ''));
+    
+    return { correct: similarity };
+  } catch (error) {
+    return { correct: false };
   }
-  return null;
 };
 
-const calculateAdvancedScore = (allAnswers, selectedTech) => {
-  let scores = { round1: 0, round2: 0, round3: 0 };
-  
-  // Round 1: Technical knowledge
-  if (allAnswers.round1) {
-    let techScore = 50;
-    allAnswers.round1.forEach(answer => {
-      const lowerAnswer = answer.toLowerCase();
-      if (lowerAnswer.length > 100) techScore += 10;
-      if (lowerAnswer.includes(selectedTech.toLowerCase())) techScore += 15;
-      
-      // Technical keywords
-      const techKeywords = ['component', 'function', 'api', 'database', 'framework', 'library'];
-      const foundKeywords = techKeywords.filter(keyword => lowerAnswer.includes(keyword));
-      techScore += foundKeywords.length * 5;
-    });
-    scores.round1 = Math.min(techScore, 100);
-  }
-  
-  // Round 2: Problem solving
-  if (allAnswers.round2) {
-    let problemScore = 50;
-    allAnswers.round2.forEach(answer => {
-      const lowerAnswer = answer.toLowerCase();
-      if (lowerAnswer.length > 150) problemScore += 15;
-      
-      // Problem-solving keywords
-      const problemKeywords = ['optimize', 'scale', 'performance', 'solution', 'approach', 'implement'];
-      const foundKeywords = problemKeywords.filter(keyword => lowerAnswer.includes(keyword));
-      problemScore += foundKeywords.length * 8;
-    });
-    scores.round2 = Math.min(problemScore, 100);
-  }
-  
-  // Round 3: Communication & HR
-  if (allAnswers.round3) {
-    let hrScore = 60;
-    allAnswers.round3.forEach(answer => {
-      const lowerAnswer = answer.toLowerCase();
-      if (lowerAnswer.length > 120) hrScore += 10;
-      
-      // Soft skills keywords
-      const softKeywords = ['team', 'communication', 'challenge', 'learn', 'collaborate', 'problem'];
-      const foundKeywords = softKeywords.filter(keyword => lowerAnswer.includes(keyword));
-      hrScore += foundKeywords.length * 6;
-    });
-    scores.round3 = Math.min(hrScore, 100);
-  }
-  
-  const overallScore = Math.round((scores.round1 + scores.round2 + scores.round3) / 3);
-  return { overallScore, roundScores: scores };
-};
-
-// POST /api/real-ai-interview/start
-app.post('/api/real-ai-interview/start', (req, res) => {
+// POST /api/quiz/generate
+app.post('/api/quiz/generate', async (req, res) => {
   try {
-    const { courseTrack, selectedTech } = req.body;
-    const sessionId = 'real-' + Date.now().toString() + Math.random().toString(36).substr(2, 9);
+    const { topics } = req.body;
     
-    activeInterviews.set(sessionId, {
-      courseTrack,
-      selectedTech,
-      allAnswers: {},
-      currentRound: 1,
-      startTime: new Date(),
-      questions: realInterviewQuestions
-    });
+    if (!topics || !Array.isArray(topics) || topics.length === 0) {
+      return res.status(400).json({ error: 'Topics array is required' });
+    }
     
-    setTimeout(() => activeInterviews.delete(sessionId), 2 * 60 * 60 * 1000); // 2 hours
-    
-    res.json({
-      sessionId,
-      message: 'Advanced AI interview session started',
-      rounds: 3,
-      questionsPerRound: 3
-    });
+    const quiz = await generateQuizWithGemini(topics);
+    res.json(quiz);
   } catch (error) {
-    console.error('Error starting real AI interview:', error);
-    res.status(500).json({ error: 'Failed to start interview' });
+    console.error('Error generating quiz:', error);
+    res.status(500).json({ error: 'Failed to generate quiz' });
   }
 });
 
-// POST /api/real-ai-interview/submit-answer
-app.post('/api/real-ai-interview/submit-answer', async (req, res) => {
+// POST /api/quiz/check-code
+app.post('/api/quiz/check-code', async (req, res) => {
   try {
-    const { sessionId, answer, round, questionIndex, selectedTech } = req.body;
-    const session = activeInterviews.get(sessionId);
+    const { userCode, expectedHTML } = req.body;
     
-    if (!session) {
-      return res.status(404).json({ error: 'Session not found' });
+    if (!userCode || !expectedHTML) {
+      return res.status(400).json({ error: 'userCode and expectedHTML are required' });
     }
     
-    // Store answer
-    if (!session.allAnswers[`round${round}`]) {
-      session.allAnswers[`round${round}`] = [];
-    }
-    session.allAnswers[`round${round}`].push(answer);
-    
-    // Generate natural AI response
-    const conversationHistory = session.conversationHistory || [];
-    let aiResponse;
-    
-    // Handle initial readiness first
-    const readinessResponse = getReadinessResponse(answer, selectedTech);
-    if (readinessResponse) {
-      aiResponse = readinessResponse;
-    } else {
-      // Generate natural AI response
-      try {
-        aiResponse = await generateNaturalResponse(answer, round, questionIndex, selectedTech, conversationHistory);
-        
-        // If AI fails, try the simpler model
-        if (!aiResponse) {
-          aiResponse = await generateAIResponse(answer, round, questionIndex, selectedTech, 'current question');
-        }
-        
-        // Final fallback with context
-        if (!aiResponse) {
-          const contextualFallbacks = {
-            1: [
-              `That's a good understanding of ${selectedTech}. Can you give me a practical example of how you'd use this?`,
-              `Interesting approach. What challenges have you faced when working with ${selectedTech}?`,
-              `I see you know the basics. How would you explain ${selectedTech} to a junior developer?`
-            ],
-            2: [
-              "That's a thoughtful solution. How would you handle this at scale?",
-              "Good approach. What edge cases would you consider?",
-              "Interesting design. How would you test this implementation?"
-            ],
-            3: [
-              "Thanks for sharing that experience. How did it help you grow?",
-              "That shows good problem-solving. How do you handle team conflicts?",
-              "Great mindset. How do you stay updated with new technologies?"
-            ]
-          };
-          
-          const fallbacks = contextualFallbacks[round] || contextualFallbacks[1];
-          aiResponse = fallbacks[Math.floor(Math.random() * fallbacks.length)];
-        }
-      } catch (error) {
-        console.error('All AI models failed:', error);
-        aiResponse = "That's a thoughtful answer. Can you tell me more about your approach?";
-      }
-    }
-    
-    // Store conversation history
-    if (!session.conversationHistory) session.conversationHistory = [];
-    session.conversationHistory.push(
-      { speaker: 'user', message: answer },
-      { speaker: 'ai', message: aiResponse }
-    );
-    
-    res.json({
-      aiResponse,
-      analysis: {
-        length: answer.length,
-        wordCount: answer.split(' ').length,
-        round: round,
-        questionIndex: questionIndex
-      }
-    });
+    const result = compareHTML(userCode, expectedHTML);
+    res.json(result);
   } catch (error) {
-    console.error('Error submitting answer:', error);
-    res.status(500).json({ error: 'Failed to submit answer' });
+    console.error('Error checking code:', error);
+    res.status(500).json({ error: 'Failed to check code' });
   }
-});
-
-// GET /api/real-ai-interview/results/:sessionId
-app.get('/api/real-ai-interview/results/:sessionId', (req, res) => {
-  try {
-    const { sessionId } = req.params;
-    const session = activeInterviews.get(sessionId);
-    
-    if (!session) {
-      return res.status(404).json({ error: 'Session not found' });
-    }
-    
-    const { overallScore, roundScores } = calculateAdvancedScore(session.allAnswers, session.selectedTech);
-    
-    const results = {
-      overallScore,
-      roundScores: [
-        { round: 'Technical Basics', score: roundScores.round1, feedback: roundScores.round1 >= 80 ? 'Excellent technical knowledge' : roundScores.round1 >= 60 ? 'Good understanding of concepts' : 'Need to strengthen fundamentals' },
-        { round: 'Problem Solving', score: roundScores.round2, feedback: roundScores.round2 >= 80 ? 'Strong problem-solving skills' : roundScores.round2 >= 60 ? 'Good analytical thinking' : 'Practice more coding problems' },
-        { round: 'HR & Behavioral', score: roundScores.round3, feedback: roundScores.round3 >= 80 ? 'Excellent communication skills' : roundScores.round3 >= 60 ? 'Good interpersonal skills' : 'Work on communication and teamwork' }
-      ],
-      strengths: overallScore >= 80 ? ['Strong technical skills', 'Good problem-solving', 'Clear communication'] : overallScore >= 60 ? ['Basic technical knowledge', 'Willing to learn', 'Good attitude'] : ['Interest in technology', 'Potential for growth'],
-      improvements: overallScore >= 80 ? ['Advanced system design', 'Leadership skills'] : overallScore >= 60 ? ['Deepen technical knowledge', 'Practice coding problems'] : ['Strengthen fundamentals', 'Build more projects', 'Practice communication'],
-      recommendation: `${overallScore >= 80 ? 'Excellent' : overallScore >= 60 ? 'Good' : 'Developing'} candidate for ${session.selectedTech}. ${overallScore >= 80 ? 'Ready for advanced roles.' : overallScore >= 60 ? 'Focus on hands-on practice.' : 'Start with fundamentals and build projects.'}`,
-      nextSteps: overallScore >= 80 ? ['Apply for senior positions', 'Mentor others', 'Contribute to open source'] : overallScore >= 60 ? ['Build portfolio projects', 'Practice system design', 'Join coding communities'] : ['Complete online courses', 'Build basic projects', 'Practice daily coding']
-    };
-    
-    activeInterviews.delete(sessionId);
-    res.json(results);
-  } catch (error) {
-    console.error('Error getting results:', error);
-    res.status(500).json({ error: 'Failed to get results' });
-  }
-});
-
-// Original AI Interview Routes (keeping for backward compatibility)
-
-// POST /api/ai-interview/start
-app.post('/api/ai-interview/start', (req, res) => {
-  try {
-    const { courseTrack } = req.body;
-    const sessionId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
-    
-    activeInterviews.set(sessionId, {
-      courseTrack,
-      answers: [],
-      startTime: new Date(),
-      questions: questionBanks[courseTrack] || questionBanks.fullstack
-    });
-    
-    // Auto-cleanup after 1 hour
-    setTimeout(() => activeInterviews.delete(sessionId), 60 * 60 * 1000);
-    
-    res.json({
-      sessionId,
-      questions: questionBanks[courseTrack] || questionBanks.fullstack
-    });
-  } catch (error) {
-    console.error('Error starting interview:', error);
-    res.status(500).json({ error: 'Failed to start interview' });
-  }
-});
-
-// POST /api/ai-interview/submit-answer
-app.post('/api/ai-interview/submit-answer', (req, res) => {
-  try {
-    const { sessionId, answer, questionIndex } = req.body;
-    const session = activeInterviews.get(sessionId);
-    
-    if (!session) {
-      return res.status(404).json({ error: 'Session not found' });
-    }
-    
-    session.answers[questionIndex] = answer;
-    
-    res.json({
-      analysis: { length: answer.length, wordCount: answer.split(' ').length },
-      nextQuestion: questionIndex + 1 < session.questions.length ? questionIndex + 1 : null
-    });
-  } catch (error) {
-    console.error('Error submitting answer:', error);
-    res.status(500).json({ error: 'Failed to submit answer' });
-  }
-});
-
-// GET /api/ai-interview/results/:sessionId
-app.get('/api/ai-interview/results/:sessionId', (req, res) => {
-  try {
-    const { sessionId } = req.params;
-    const session = activeInterviews.get(sessionId);
-    
-    if (!session) {
-      return res.status(404).json({ error: 'Session not found' });
-    }
-    
-    const score = calculateScore(session.answers, session.courseTrack);
-    const feedbackData = generateFeedback(score, session.answers, session.courseTrack);
-    
-    const results = { score, ...feedbackData };
-    activeInterviews.delete(sessionId); // Clean up session
-    
-    res.json(results);
-  } catch (error) {
-    console.error('Error getting results:', error);
-    res.status(500).json({ error: 'Failed to get results' });
-  }
-});
-
-// GET /api/ai-interview/stats (optional - for monitoring)
-app.get('/api/ai-interview/stats', (req, res) => {
-  const realSessions = Array.from(activeInterviews.keys()).filter(key => key.startsWith('real-')).length;
-  const basicSessions = Array.from(activeInterviews.keys()).filter(key => !key.startsWith('real-')).length;
-  
-  res.json({
-    totalActiveSessions: activeInterviews.size,
-    realAIInterviews: realSessions,
-    basicInterviews: basicSessions,
-    timestamp: new Date().toISOString()
-  });
 });
 
 app.listen(PORT, () => {
