@@ -236,8 +236,20 @@ const generateQuizWithGemini = async (topics) => {
     const topicString = topics.join(' and ');
     const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
     
-    // Generate MCQs
-    const mcqPrompt = `You are an expert web developer. Generate 10 MCQs on the topic: ${topicString}.
+    // Generate MCQs with randomization
+    const randomSeed = Math.floor(Math.random() * 10000);
+    const mcqPrompt = `You are an expert web developer. Generate 10 DIVERSE and UNIQUE MCQs on ${topicString}. 
+RANDOM SEED: ${randomSeed}
+
+Cover these areas randomly:
+- Basic syntax and elements
+- Advanced concepts and properties
+- Best practices and common mistakes
+- Browser compatibility and modern features
+- Accessibility and semantic markup
+- Performance optimization
+- Responsive design concepts
+
 Return JSON only, EXACT format:
 [
 {
@@ -247,7 +259,7 @@ Return JSON only, EXACT format:
 }
 ]
 No explanations. No extra text. No markdown.
-Make sure all questions are UNIQUE and not repeated.`;
+Ensure ALL questions are COMPLETELY DIFFERENT from typical basic questions.`;
     
     const mcqResult = await model.generateContent(mcqPrompt);
     const mcqResponse = mcqResult.response;
@@ -256,8 +268,20 @@ Make sure all questions are UNIQUE and not repeated.`;
     // Clean the response
     mcqText = mcqText.replace(/```json/g, '').replace(/```/g, '').trim();
     
-    // Generate Coding Tasks
-    const codingPrompt = `Generate 3 HTML/CSS coding tasks. Return JSON in this exact format:
+    // Generate Coding Tasks with variety
+    const codingRandomSeed = Math.floor(Math.random() * 10000);
+    const codingPrompt = `Generate 3 CREATIVE and DIVERSE HTML/CSS coding tasks for ${topicString}.
+RANDOM SEED: ${codingRandomSeed}
+
+Vary the difficulty and focus areas:
+- Layout and positioning
+- Styling and visual effects
+- Forms and interactive elements
+- Responsive design
+- Animations and transitions
+- Semantic HTML structure
+
+Return JSON in this exact format:
 [
 {
 "question": "",
@@ -265,6 +289,7 @@ Make sure all questions are UNIQUE and not repeated.`;
 }
 ]
 The 'expectedHTML' must be fully valid HTML/CSS.
+Make each task UNIQUE and CREATIVE. No basic button/div examples.
 No explanations. No markdown.`;
     
     const codingResult = await model.generateContent(codingPrompt);
