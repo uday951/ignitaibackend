@@ -234,7 +234,7 @@ app.get('/api/feedback', async (req, res) => {
 const generateQuizWithGemini = async (topics) => {
   try {
     const topicString = topics.join(' and ');
-    const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     
     // Generate MCQs with randomization
     const randomSeed = Math.floor(Math.random() * 10000);
